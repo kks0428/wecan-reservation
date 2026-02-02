@@ -5,14 +5,14 @@ from datetime import datetime, timedelta
 import pandas as pd
 import calendar
 
-# --- 페이지 기본 설정 ---
+# --- 1. 페이지 기본 설정 ---
 st.set_page_config(
     page_title="월간 예약 조회",
     page_icon="📅",
     layout="wide"
 )
 
-# --- 스타일링 (전체 폰트 크기 등) ---
+# --- 2. 기본 스타일링 ---
 st.markdown("""
 <style>
     .stDataFrame { font-size: 14px; }
@@ -23,7 +23,7 @@ st.markdown("""
 st.title("📅 키즈클럽 월간 예약 현황")
 st.caption("좌측 사이드바에 아이디/비번 입력 후 '조회' 버튼을 누르세요.")
 
-# --- 사이드바: 로그인 정보 ---
+# --- 3. 사이드바: 로그인 정보 ---
 with st.sidebar:
     st.header("🔐 로그인 설정")
     # Streamlit Cloud의 Secrets 기능을 사용하거나 직접 입력
@@ -35,7 +35,7 @@ with st.sidebar:
     
     st.info("⚠️ 월간 조회는 데이터량이 많아 20~30초 정도 소요됩니다.")
 
-# --- 예약 조회 로직 클래스 ---
+# --- 4. 예약 조회 로직 클래스 ---
 class ReservationChecker:
     def __init__(self, uid, upw):
         self.user_id = uid
@@ -83,7 +83,7 @@ class ReservationChecker:
 
         table_data = []
         
-        # 진행률 표시
+        # 진행률 표시 바
         progress_text = st.empty()
         progress_bar = st.progress(0)
 
@@ -93,21 +93,21 @@ class ReservationChecker:
             weekday_num = current_date.weekday()
             day_name = ["(월)", "(화)", "(수)", "(목)", "(금)", "(토)", "(일)"][weekday_num]
             
-            # 진행바 업데이트
+            # 진행 상태 업데이트
             progress_percent = (i + 1) / total_days
             progress_bar.progress(progress_percent)
             progress_text.text(f"{date_str} 데이터 조회 중... ({i+1}/{total_days})")
 
-            # 날짜 포맷팅 (HTML 줄바꿈 <br> 사용)
-            date_html = f"<b>{date_str}</b><br><span style='color:gray'>{day_name}</span>"
+            # 날짜 포맷팅 (HTML 줄바꿈 <br> 사용, 다크모드 대응)
+            date_html = f"<b>{date_str}</b><br><span style='color:#666; font-size:12px;'>{day_name}</span>"
 
             row = {"날짜": date_html, "총인원": 0}
             for col in time_columns:
-                row[col] = "-" # 기본적으로 '운영 안함' 표시
+                row[col] = "-" # 기본값 (운영 안함)
 
             current_map = day_schedule_map[weekday_num]
 
-            # 월요일 등 휴무 처리
+            # 휴무 처리
             if not current_map:
                 for col in time_columns: row[col] = "<span style='color:#ff4b4b; opacity:0.5'>⛔</span>"
                 table_data.append(row)
@@ -131,7 +131,7 @@ class ReservationChecker:
                         names = [name.strip() for name in raw_text.split(',') if name.strip()]
                         if names:
                             daily_total += len(names)
-                            # 이름 사이 콤마로 연결
+                            # 이름이 길어지면 줄바꿈 되도록 쉼표 뒤에 공백 추가
                             row[time_label] = ", ".join(names)
                 except:
                     pass
@@ -144,7 +144,7 @@ class ReservationChecker:
         progress_text.empty()
         return pd.DataFrame(table_data)
 
-# --- 메인 화면 UI ---
+# --- 5. 메인 화면 UI 실행부 ---
 col1, col2 = st.columns([1, 2])
 with col1:
     target_date = st.date_input("조회할 '달'의 날짜 선택", datetime.now())
@@ -175,33 +175,35 @@ if btn_run:
             
             st.success(f"✅ {target_date.strftime('%Y년 %m월')} 예약 현황 조회 완료!")
             
-            # --- [핵심] 엑셀 틀 고정 스타일 (Sticky Header & Column) ---
+            # --- [핵심] CSS 스타일 (다크모드 완벽 대응 + 틀 고정) ---
             st.markdown("""
             <style>
                 /* 1. 표를 감싸는 스크롤 박스 */
                 .table-container {
-                    overflow: auto; /* 스크롤바 자동 생성 */
+                    overflow: auto;
                     height: 75vh;   /* 모바일 화면 높이의 75% 사용 */
                     border: 1px solid #ddd;
-                    background-color: white;
                     border-radius: 8px;
-                    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                    /* [중요] 배경을 무조건 흰색으로 고정 (다크모드 방지) */
+                    background-color: #ffffff !important;
                 }
 
                 /* 2. 표 기본 디자인 */
                 table.custom-table {
                     width: 100%;
-                    border-collapse: separate; /* Sticky 적용을 위해 separate 필수 */
+                    border-collapse: separate; /* Sticky 적용을 위해 필수 */
                     border-spacing: 0;
                     font-size: 13px;
                     min-width: 800px; /* 표가 너무 찌그러지지 않게 최소 너비 확보 */
                 }
                 
+                /* [중요] 모든 셀의 글자색을 무조건 '검은색'으로 강제 (!important) */
                 table.custom-table th, table.custom-table td {
+                    color: #333333 !important; 
                     padding: 10px 8px;
                     border-bottom: 1px solid #eee;
                     border-right: 1px solid #eee;
-                    white-space: nowrap; /* 줄바꿈 방지 (이름이 길어도 한 줄로) */
+                    white-space: nowrap; /* 줄바꿈 방지 */
                     vertical-align: middle;
                 }
 
@@ -209,10 +211,10 @@ if btn_run:
                 table.custom-table thead th {
                     position: sticky;
                     top: 0;
-                    background-color: #f0f2f6; 
-                    color: #31333F;
+                    background-color: #f0f2f6 !important; /* 배경색 강제 */
+                    color: #333333 !important;
                     font-weight: bold;
-                    z-index: 10; /* 데이터보다 위에 뜸 */
+                    z-index: 10; 
                     border-bottom: 2px solid #ccc;
                     text-align: center;
                 }
@@ -222,25 +224,25 @@ if btn_run:
                 table.custom-table thead th:first-child {
                     position: sticky;
                     left: 0;
-                    background-color: #fafafa;
-                    z-index: 5; /* 일반 데이터보다 위에, 헤더보다는 아래 */
-                    border-right: 2px solid #ccc; /* 고정선 강조 */
+                    background-color: #fafafa !important; /* 배경색 강제 */
+                    z-index: 5; 
+                    border-right: 2px solid #ccc; 
                     text-align: center;
-                    min-width: 80px;
+                    min-width: 85px;
                 }
 
                 /* 5. [좌측 상단 모서리] 날짜/시간 교차점 */
                 table.custom-table thead th:first-child {
                     z-index: 15; /* 제일 위에 있어야 함 */
-                    background-color: #e6e9ef;
+                    background-color: #e6e9ef !important;
                 }
 
                 /* 총인원 컬럼 강조 */
                 table.custom-table td:nth-child(2) {
-                    background-color: #fffbf0;
+                    background-color: #fffbf0 !important;
                     text-align: center;
                     font-weight: bold;
-                    color: #d63031;
+                    color: #d63031 !important; /* 빨간색 */
                 }
                 
                 /* 데이터 셀 텍스트 정렬 */
