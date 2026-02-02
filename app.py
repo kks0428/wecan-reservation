@@ -20,7 +20,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📅 키즈클럽 월간 예약 현황")
+st.title("📅 위캔키즈클럽 월간 예약 현황")
 st.caption("좌측 사이드바에 아이디/비번 입력 후 '조회' 버튼을 누르세요.")
 
 # --- 3. 사이드바: 로그인 정보 ---
