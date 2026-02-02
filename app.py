@@ -179,11 +179,50 @@ if btn_run:
             for t_col in ["11~12시", "12~1시", "1~2시", "2~3시", "3~4시", "4~5시", "5~6시", "6~7시"]:
                 time_cols_config[t_col] = st.column_config.TextColumn(t_col, width="large")
 
-            # 표 출력
-            st.dataframe(
-                df,
-                column_config=time_cols_config,
-                hide_index=True,
-                use_container_width=True,
-                height=800 # 월간 데이터라 세로로 기니까 높이를 늘림
-            )
+            # 결과 출력
+            st.success(f"{target_date.strftime('%Y년 %m월')} 예약 조회 완료!")
+            
+            # [수정] HTML로 변환하여 깔끔하게 출력하기
+            # 1. CSS 스타일 정의 (표 디자인)
+            st.markdown("""
+            <style>
+                /* 표 전체 디자인 */
+                table.custom-table {
+                    width: auto !important; /* 화면 꽉 채우지 말고 내용만큼만 */
+                    margin-left: 0;
+                    border-collapse: collapse;
+                    font-size: 14px;
+                }
+                /* 헤더 (제목) 디자인 */
+                table.custom-table th {
+                    background-color: #f0f2f6;
+                    color: #333;
+                    font-weight: bold;
+                    text-align: center;
+                    padding: 10px;
+                    border: 1px solid #ddd;
+                    white-space: nowrap; /* 제목 줄바꿈 금지 */
+                }
+                /* 데이터 셀 디자인 */
+                table.custom-table td {
+                    padding: 8px 12px;
+                    border: 1px solid #ddd;
+                    vertical-align: top; /* 글자를 위쪽 정렬 */
+                    min-width: 80px; /* 최소 너비 확보 */
+                }
+                /* 첫번째 컬럼(날짜) 강조 */
+                table.custom-table td:nth-child(1) {
+                    font-weight: bold;
+                    background-color: #fafafa;
+                    white-space: nowrap; /* 날짜는 줄바꿈 안 함 */
+                    text-align: center;
+                }
+            </style>
+            """, unsafe_allow_html=True)
+
+            # 2. 데이터프레임을 HTML로 변환
+            # classes='custom-table'을 주어서 위의 CSS를 적용받게 함
+            html_table = df.to_html(index=False, classes='custom-table', escape=False)
+            
+            # 3. 화면에 그리기
+            st.markdown(html_table, unsafe_allow_html=True)
