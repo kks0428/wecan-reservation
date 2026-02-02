@@ -159,14 +159,22 @@ if btn_run:
                 # 결과 출력
                 st.success("조회 완료!")
                 
-                # 데이터프레임 스타일링 (중요)
+                # [수정된 부분] 시간대 컬럼 설정을 자동 생성합니다.
+                # 각 시간대 컬럼을 'large'(넓음)로 설정하여 이름이 잘리지 않게 합니다.
+                time_cols_config = {
+                    "날짜": st.column_config.TextColumn("날짜", width="small", pinned=True),
+                    "총인원": st.column_config.TextColumn("합계", width="small"),
+                }
+                
+                # 시간대 컬럼들(11시~7시)에 대해 일괄적으로 "large" 옵션 적용
+                for t_col in ["11~12시", "12~1시", "1~2시", "2~3시", "3~4시", "4~5시", "5~6시", "6~7시"]:
+                    time_cols_config[t_col] = st.column_config.TextColumn(t_col, width="large")
+
+                # 데이터프레임 그리기
                 st.dataframe(
                     df,
-                    column_config={
-                        "날짜": st.column_config.TextColumn("날짜", width="small", help="해당 요일"),
-                        "총인원": st.column_config.TextColumn("합계", width="small"),
-                    },
+                    column_config=time_cols_config, # 위에서 만든 설정 적용
                     hide_index=True,
-                    use_container_width=True, # 화면 꽉 차게
-                    height=500 # 높이 고정
+                    use_container_width=True, # 화면 가로폭 꽉 채우기
+                    height=600 # 표 높이를 좀 더 늘려줌
                 )
