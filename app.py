@@ -3,15 +3,16 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import pandas as pd
+import calendar # 월의 마지막 날짜를 계산하기 위해 필요
 
 # --- 페이지 기본 설정 ---
 st.set_page_config(
-    page_title="예약 현황 조회",
+    page_title="월간 예약 조회",
     page_icon="📅",
-    layout="wide" # 표를 넓게 보여주기 위함
+    layout="wide"
 )
 
-# --- 스타일링 (모바일에서 표가 잘 보이게) ---
+# --- 스타일링 ---
 st.markdown("""
 <style>
     .stDataFrame { font-size: 14px; }
@@ -19,20 +20,19 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📅 키즈클럽 주간 예약 현황")
-st.caption("요일별 시간표가 자동 적용된 실시간 조회 시스템입니다.")
+st.title("📅 위캔키즈클럽 월간 예약 현황")
+st.caption("선택한 날짜가 포함된 '한 달 치' 데이터를 모두 가져옵니다.")
 
 # --- 사이드바: 로그인 정보 ---
 with st.sidebar:
     st.header("🔐 로그인 설정")
-    # Streamlit Secrets에서 불러오거나 직접 입력
     default_id = st.secrets.get("USER_ID", "")
     default_pw = st.secrets.get("USER_PW", "")
     
     user_id = st.text_input("아이디", value=default_id)
     user_pw = st.text_input("비밀번호", value=default_pw, type="password")
     
-    st.info("입력한 정보는 저장되지 않습니다.")
+    st.info("⚠️ 월간 조회는 데이터량이 많아 20~30초 정도 소요될 수 있습니다.")
 
 # --- 예약 조회 로직 클래스 ---
 class ReservationChecker:
@@ -57,13 +57,19 @@ class ReservationChecker:
         except Exception as e:
             return False, str(e)
 
-    def get_weekly_data(self, selected_date):
-        start_of_week = selected_date - timedelta(days=selected_date.weekday())
+    def get_monthly_data(self, selected_date):
+        # 1. 해당 월의 시작일(1일)과 마지막 날 계산
+        year = selected_date.year
+        month = selected_date.month
+        last_day = calendar.monthrange(year, month)[1] # 그 달이 며칠까지 있는지 (28, 30, 31)
         
-        # 1. 컬럼 정의
+        start_date = datetime(year, month, 1).date()
+        total_days = last_day
+        
+        # 2. 컬럼 정의
         time_columns = ["11~12시", "12~1시", "1~2시", "2~3시", "3~4시", "4~5시", "5~6시", "6~7시"]
         
-        # 2. 요일별 k값 매핑 (최종 수정본 적용)
+        # 3. 요일별 k값 매핑 (최종 수정본)
         day_schedule_map = {
             0: {}, # 월: 휴무
             1: {2: "5~6시", 3: "6~7시"}, # 화
@@ -75,20 +81,26 @@ class ReservationChecker:
         }
 
         table_data = []
-        progress_bar = st.progress(0) # 진행률 표시
+        
+        # 진행률 표시 바 생성
+        progress_text = st.empty()
+        progress_bar = st.progress(0)
 
-        for i in range(7):
-            current_date = start_of_week + timedelta(days=i)
+        # 1일부터 말일까지 반복
+        for i in range(total_days):
+            current_date = start_date + timedelta(days=i)
             date_str = current_date.strftime("%Y-%m-%d")
             weekday_num = current_date.weekday()
             day_name = ["(월)", "(화)", "(수)", "(목)", "(금)", "(토)", "(일)"][weekday_num]
             
-            # 진행률 업데이트
-            progress_bar.progress((i + 1) / 7)
+            # 진행 상태 업데이트
+            progress_percent = (i + 1) / total_days
+            progress_bar.progress(progress_percent)
+            progress_text.text(f"데이터 수집 중... {date_str} 읽는 중 ({i+1}/{total_days})")
 
-            row = {"날짜": f"{date_str}\n{day_name}", "총인원": 0} # 날짜 포맷
+            row = {"날짜": f"{date_str}\n{day_name}", "총인원": 0}
             for col in time_columns:
-                row[col] = "-" # 기본값
+                row[col] = "-"
 
             current_map = day_schedule_map[weekday_num]
 
@@ -116,7 +128,6 @@ class ReservationChecker:
                         names = [name.strip() for name in raw_text.split(',') if name.strip()]
                         if names:
                             daily_total += len(names)
-                            # 모바일 가독성을 위해 줄바꿈 처리
                             row[time_label] = ", ".join(names)
                 except:
                     pass
@@ -124,18 +135,20 @@ class ReservationChecker:
             row["총인원"] = f"{daily_total}명" if daily_total > 0 else ""
             table_data.append(row)
         
-        progress_bar.empty() # 진행바 제거
+        progress_bar.empty()
+        progress_text.empty()
         return pd.DataFrame(table_data)
 
 # --- 메인 화면 UI ---
 col1, col2 = st.columns([1, 2])
 with col1:
-    target_date = st.date_input("조회할 주간의 날짜 선택", datetime.now())
+    # 날짜를 선택하면 그 달 전체를 조회하도록 안내
+    target_date = st.date_input("조회하고 싶은 '달'의 아무 날짜나 선택하세요", datetime.now())
 
 with col2:
-    st.write("") # 여백
     st.write("") 
-    btn_run = st.button("🚀 주간 예약 조회하기", type="primary", use_container_width=True)
+    st.write("") 
+    btn_run = st.button("🚀 월간 전체 조회하기", type="primary", use_container_width=True)
 
 if btn_run:
     if not user_id or not user_pw:
@@ -149,32 +162,28 @@ if btn_run:
         if not is_login:
             st.error(msg)
         else:
-            with st.spinner(f"데이터를 불러오고 있습니다... (약 5~10초 소요)"):
-                df = checker.get_weekly_data(target_date)
-                
-                # 컬럼 순서 지정
-                cols = ["날짜", "총인원", "11~12시", "12~1시", "1~2시", "2~3시", "3~4시", "4~5시", "5~6시", "6~7시"]
-                df = df[cols]
-                
-                # 결과 출력
-                st.success("조회 완료!")
-                
-                # [수정된 부분] 시간대 컬럼 설정을 자동 생성합니다.
-                # 각 시간대 컬럼을 'large'(넓음)로 설정하여 이름이 잘리지 않게 합니다.
-                time_cols_config = {
-                    "날짜": st.column_config.TextColumn("날짜", width="small", pinned=True),
-                    "총인원": st.column_config.TextColumn("합계", width="small"),
-                }
-                
-                # 시간대 컬럼들(11시~7시)에 대해 일괄적으로 "large" 옵션 적용
-                for t_col in ["11~12시", "12~1시", "1~2시", "2~3시", "3~4시", "4~5시", "5~6시", "6~7시"]:
-                    time_cols_config[t_col] = st.column_config.TextColumn(t_col, width="large")
+            # 월간 데이터 조회 시작
+            df = checker.get_monthly_data(target_date)
+            
+            # 컬럼 순서 지정
+            cols = ["날짜", "총인원", "11~12시", "12~1시", "1~2시", "2~3시", "3~4시", "4~5시", "5~6시", "6~7시"]
+            df = df[cols]
+            
+            st.success(f"{target_date.strftime('%Y년 %m월')} 예약 조회 완료!")
+            
+            # 컬럼 설정 (가로로 넓게 보이도록)
+            time_cols_config = {
+                "날짜": st.column_config.TextColumn("날짜", width="small", pinned=True),
+                "총인원": st.column_config.TextColumn("합계", width="small"),
+            }
+            for t_col in ["11~12시", "12~1시", "1~2시", "2~3시", "3~4시", "4~5시", "5~6시", "6~7시"]:
+                time_cols_config[t_col] = st.column_config.TextColumn(t_col, width="large")
 
-                # 데이터프레임 그리기
-                st.dataframe(
-                    df,
-                    column_config=time_cols_config, # 위에서 만든 설정 적용
-                    hide_index=True,
-                    use_container_width=True, # 화면 가로폭 꽉 채우기
-                    height=600 # 표 높이를 좀 더 늘려줌
-                )
+            # 표 출력
+            st.dataframe(
+                df,
+                column_config=time_cols_config,
+                hide_index=True,
+                use_container_width=True,
+                height=800 # 월간 데이터라 세로로 기니까 높이를 늘림
+            )
