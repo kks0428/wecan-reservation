@@ -35,6 +35,7 @@ THRESHOLDS = {
     "drop_5m_pct": -2.5,        # 5m 급락
     "liq_drop_pct": -12.0,      # 직전 대비 유동성 -12% 이하
     "sell_bias_ratio": 1.35,    # sells > buys * 1.35
+    "watch_1h_pct": -3.0,       # 관망 경계선
 }
 
 
@@ -65,7 +66,7 @@ def save_state(state: dict) -> None:
     STATE_FILE.write_text(json.dumps(state, ensure_ascii=False, indent=2))
 
 
-def analyze(cur: dict, prev: dict) -> list[str]:
+def analyze(cur: dict, prev: dict) -> tuple[list[str], str]:
     alerts: list[str] = []
 
     ch = cur.get("priceChange") or {}
@@ -87,12 +88,31 @@ def analyze(cur: dict, prev: dict) -> list[str]:
         alerts.append(f"⚠️ 매도 우위: h1 buys/sells={buys}/{sells}")
 
     prev_liq = float(prev.get("liq") or 0)
+    liq_delta = 0.0
     if prev_liq > 0:
         liq_delta = (liq - prev_liq) / prev_liq * 100
         if liq_delta <= THRESHOLDS["liq_drop_pct"]:
             alerts.append(f"⚠️ 유동성 급감: {liq_delta:.2f}% (prev ${prev_liq:,.0f} -> now ${liq:,.0f})")
 
-    return alerts
+    # Signal
+    hard_risk = 0
+    if h1 <= THRESHOLDS["drop_1h_pct"]:
+        hard_risk += 1
+    if m5 <= THRESHOLDS["drop_5m_pct"]:
+        hard_risk += 1
+    if prev_liq > 0 and liq_delta <= THRESHOLDS["liq_drop_pct"]:
+        hard_risk += 1
+    if buys > 0 and sells > buys * THRESHOLDS["sell_bias_ratio"]:
+        hard_risk += 1
+
+    if hard_risk >= 2:
+        signal = "비중감축"
+    elif h1 <= THRESHOLDS["watch_1h_pct"]:
+        signal = "관망"
+    else:
+        signal = "조건부 분할매수"
+
+    return alerts, signal
 
 
 def snapshot_line(cur: dict) -> str:
@@ -126,12 +146,16 @@ def run_once(notify: bool = False) -> int:
 
     line = snapshot_line(cur)
     print(line)
-    alerts = analyze(cur, prev)
+    alerts, signal = analyze(cur, prev)
+    print(f"[SIGNAL] {signal}")
     for a in alerts:
         print(a)
 
-    if notify and alerts:
-        send_telegram("[PENGUIN ALERT]\n" + line + "\n" + "\n".join(alerts))
+    if notify and (alerts or signal != "조건부 분할매수"):
+        msg = "[PENGUIN SIGNAL] " + signal + "\n" + line
+        if alerts:
+            msg += "\n" + "\n".join(alerts)
+        send_telegram(msg)
 
     save_state(
         {
