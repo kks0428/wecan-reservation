@@ -14,6 +14,9 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
+import shlex
+import subprocess
 import time
 from pathlib import Path
 
@@ -23,6 +26,8 @@ TOKEN = "8Jx8AAHj86wbQgUTjGuj6GTTL5Ps3cqxKRTvpaJApump"
 CHAIN = "solana"
 API = "https://api.dexscreener.com"
 STATE_FILE = Path("/home/kspoopoo/.openclaw/workspace/.penguin_state.json")
+OPENCLAW_BIN = "node /home/kspoopoo/openclaw/dist/index.js"
+TG_TARGET_DEFAULT = "497612383"
 
 
 THRESHOLDS = {
@@ -104,14 +109,29 @@ def snapshot_line(cur: dict) -> str:
     )
 
 
-def run_once() -> int:
+def send_telegram(msg: str) -> None:
+    target = os.getenv("PENGUIN_TG_TARGET", TG_TARGET_DEFAULT).strip()
+    if not target:
+        return
+    cmd = (
+        f"{OPENCLAW_BIN} message send --channel telegram "
+        f"--target {shlex.quote(target)} --message {shlex.quote(msg)}"
+    )
+    subprocess.run(cmd, shell=True, check=False)
+
+
+def run_once(notify: bool = False) -> int:
     cur = fetch_top_pair()
     prev = load_state()
 
-    print(snapshot_line(cur))
+    line = snapshot_line(cur)
+    print(line)
     alerts = analyze(cur, prev)
     for a in alerts:
         print(a)
+
+    if notify and alerts:
+        send_telegram("[PENGUIN ALERT]\n" + line + "\n" + "\n".join(alerts))
 
     save_state(
         {
@@ -129,14 +149,15 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--interval", type=int, default=0, help="seconds; 0 means run once")
     ap.add_argument("--once", action="store_true")
+    ap.add_argument("--notify", action="store_true", help="send Telegram alert when thresholds hit")
     args = ap.parse_args()
 
     if args.once or args.interval <= 0:
-        return run_once()
+        return run_once(notify=args.notify)
 
     while True:
         try:
-            run_once()
+            run_once(notify=args.notify)
         except Exception as e:
             print(f"[{now_kst()}] ERROR: {e}")
         time.sleep(args.interval)
