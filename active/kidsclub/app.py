@@ -48,6 +48,15 @@ st.markdown(
   font-weight:700;
   display:inline-block;
 }
+.child-name {
+  background:#DBEAFE;
+  color:#1E3A8A !important;
+  border:1px solid #3B82F6;
+  border-radius:8px;
+  padding:1px 6px;
+  font-weight:800;
+  display:inline-block;
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -70,6 +79,7 @@ DAY_SCHEDULE_MAP = {
 FALLBACK_ID = "하연01"
 FALLBACK_PW = "2677"
 DEFAULT_FRIENDS = ["채원01", "호연01", "예나01", "보아02"]
+CHILD_NAME = "하연01"
 
 
 class ReservationChecker:
@@ -267,9 +277,13 @@ if st.button("🚀 오늘+30일 조회", type="primary", use_container_width=Tru
                             continue
                         rendered_names = []
                         watch_lower = {w.lower() for w in watch_names}
+                        child_lower = CHILD_NAME.lower()
                         for nm in names:
                             esc = html.escape(nm)
-                            if nm.lower() in watch_lower:
+                            nml = nm.lower()
+                            if nml == child_lower:
+                                rendered_names.append(f"<span class='child-name'>{esc}</span>")
+                            elif nml in watch_lower:
                                 rendered_names.append(f"<span class='friend-name'>{esc}</span>")
                             else:
                                 rendered_names.append(esc)
