@@ -20,16 +20,33 @@ st.markdown(
   border-radius: 14px;
   padding: 12px;
   margin-bottom: 10px;
-  background: #fff;
+  background: #FFFFFF !important;
+  color: #111827 !important;
 }
-.k-date {font-weight: 700; font-size: 1rem;}
-.k-total {color: #B91C1C; font-weight: 700;}
-.k-slot {margin-top: 8px; padding: 8px; border-radius: 10px; background: #F9FAFB;}
-.k-slot-title {font-weight: 600; margin-bottom: 4px;}
-.k-empty {color: #6B7280;}
+.k-date {font-weight: 700; font-size: 1rem; color:#111827 !important;}
+.k-total {color: #B91C1C !important; font-weight: 700;}
+.k-slot {
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: 10px;
+  background: #F9FAFB !important;
+  color:#111827 !important;
+  border:1px solid #E5E7EB;
+}
+.k-slot-title {font-weight: 600; margin-bottom: 4px; color:#111827 !important;}
+.k-empty {color: #6B7280 !important;}
 .badge {
   display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px;
-  border:1px solid #FECACA; background:#FEF2F2; color:#B91C1C; font-weight:600;
+  border:1px solid #FECACA; background:#FEF2F2 !important; color:#B91C1C !important; font-weight:600;
+}
+.friend-name {
+  background:#FEF3C7;
+  color:#92400E !important;
+  border:1px solid #F59E0B;
+  border-radius:8px;
+  padding:1px 6px;
+  font-weight:700;
+  display:inline-block;
 }
 </style>
 """,
@@ -248,7 +265,15 @@ if st.button("🚀 오늘+30일 조회", type="primary", use_container_width=Tru
                         names = r["slots"].get(slot, [])
                         if not names:
                             continue
-                        safe = ", ".join(html.escape(x) for x in names)
+                        rendered_names = []
+                        watch_lower = {w.lower() for w in watch_names}
+                        for nm in names:
+                            esc = html.escape(nm)
+                            if nm.lower() in watch_lower:
+                                rendered_names.append(f"<span class='friend-name'>{esc}</span>")
+                            else:
+                                rendered_names.append(esc)
+                        safe = ", ".join(rendered_names)
                         st.markdown(
                             f"<div class='k-slot'><div class='k-slot-title'>{slot}</div><div>{safe}</div></div>",
                             unsafe_allow_html=True,
