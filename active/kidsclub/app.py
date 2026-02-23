@@ -1,69 +1,49 @@
 import html
 from datetime import datetime, timedelta
 
-import pandas as pd
 import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
-# =========================
-# 기본 설정
-# =========================
 st.set_page_config(page_title="키즈클럽 예약 조회", page_icon="📅", layout="centered")
 
 st.markdown(
     """
 <style>
-.block-container {padding-top: 1rem; padding-bottom: 2rem; max-width: 720px;}
+.block-container {padding-top: 0.8rem; padding-bottom: 2rem; max-width: 720px;}
+.k-summary {
+  position: sticky; top: 0; z-index: 50;
+  background: #FFFFFF !important; color:#111827 !important;
+  border:1px solid #E5E7EB; border-radius: 12px;
+  padding:8px 10px; margin-bottom:10px;
+}
 .k-card {
-  border: 1px solid #E5E7EB;
-  border-radius: 14px;
-  padding: 12px;
-  margin-bottom: 10px;
-  background: #FFFFFF !important;
-  color: #111827 !important;
+  border: 1px solid #E5E7EB; border-radius: 14px; background: #FFFFFF !important;
+  color: #111827 !important; margin-bottom: 8px;
 }
-.k-date {font-weight: 700; font-size: 1rem; color:#111827 !important;}
-.k-total {color: #B91C1C !important; font-weight: 700;}
-.k-slot {
-  margin-top: 8px;
-  padding: 8px;
-  border-radius: 10px;
-  background: #F9FAFB !important;
-  color:#111827 !important;
-  border:1px solid #E5E7EB;
-}
-.k-slot-title {font-weight: 600; margin-bottom: 4px; color:#111827 !important;}
-.k-empty {color: #6B7280 !important;}
+.k-date {font-weight: 700; color:#111827 !important;}
+.k-total {color: #B91C1C !important; font-weight: 700; margin-left: 8px;}
 .badge {
   display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px;
   border:1px solid #FECACA; background:#FEF2F2 !important; color:#B91C1C !important; font-weight:600;
 }
 .friend-name {
-  background:#FEF3C7;
-  color:#92400E !important;
-  border:1px solid #F59E0B;
-  border-radius:8px;
-  padding:1px 6px;
-  font-weight:700;
-  display:inline-block;
+  background:#FEF3C7; color:#92400E !important; border:1px solid #F59E0B;
+  border-radius:8px; padding:1px 6px; font-weight:700; display:inline-block;
 }
 .child-name {
-  background:#DBEAFE;
-  color:#1E3A8A !important;
-  border:1px solid #3B82F6;
-  border-radius:8px;
-  padding:1px 6px;
-  font-weight:800;
-  display:inline-block;
+  background:#DBEAFE; color:#1E3A8A !important; border:1px solid #3B82F6;
+  border-radius:8px; padding:1px 6px; font-weight:800; display:inline-block;
 }
+.k-slot {margin-top:6px; padding:8px; border-radius: 10px; background: #F9FAFB !important; border:1px solid #E5E7EB;}
+.k-slot-title {font-weight:600; margin-bottom:4px;}
 </style>
 """,
     unsafe_allow_html=True,
 )
 
 st.title("📅 키즈클럽 예약 조회")
-st.caption("오늘 기준 +30일 범위만 조회됩니다.")
+st.caption("오늘 기준 +30일만 조회")
 
 TIME_COLUMNS = ["11~12시", "12~1시", "1~2시", "2~3시", "3~4시", "4~5시", "5~6시", "6~7시"]
 DAY_SCHEDULE_MAP = {
@@ -95,18 +75,12 @@ class ReservationChecker:
     def login(self):
         try:
             login_url = "https://wecankidsclub.younmanager.com/bbs/login_check.php"
-            data = {
-                "mb_id": self.user_id,
-                "mb_password": self.user_pw,
-                "url": "https://wecankidsclub.younmanager.com/",
-            }
+            data = {"mb_id": self.user_id, "mb_password": self.user_pw, "url": "https://wecankidsclub.younmanager.com/"}
             res = self.session.post(login_url, data=data, headers=self.headers, timeout=12)
             res.raise_for_status()
             if "비밀번호가 틀립니다" in res.text or "존재하지 않는 회원" in res.text:
                 return False, "아이디 또는 비밀번호가 틀렸습니다."
             return True, "로그인 성공"
-        except requests.RequestException as e:
-            return False, f"로그인 요청 실패: {e}"
         except Exception as e:
             return False, f"로그인 오류: {e}"
 
@@ -115,11 +89,8 @@ class ReservationChecker:
         start_date = datetime.now().date()
         end_date = start_date + timedelta(days=30)
 
-        rows = []
-        friend_hits = []
-        errors = []
+        rows, friend_hits, child_hits, errors = [], [], [], []
 
-        # 대략 진행률 계산용
         total_steps = 0
         d = start_date
         while d <= end_date:
@@ -127,7 +98,7 @@ class ReservationChecker:
             d += timedelta(days=1)
 
         progress = st.progress(0)
-        progress_text = st.empty()
+        txt = st.empty()
         step = 0
 
         d = start_date
@@ -135,14 +106,7 @@ class ReservationChecker:
             date_str = d.strftime("%Y-%m-%d")
             weekday_num = d.weekday()
             day_name = ["월", "화", "수", "목", "금", "토", "일"][weekday_num]
-
-            row = {
-                "날짜": date_str,
-                "요일": day_name,
-                "총인원": 0,
-                "is_closed": False,
-                "slots": {},
-            }
+            row = {"날짜": date_str, "요일": day_name, "총인원": 0, "is_closed": False, "slots": {}}
 
             current_map = DAY_SCHEDULE_MAP[weekday_num]
             if not current_map:
@@ -150,7 +114,7 @@ class ReservationChecker:
                 rows.append(row)
                 step += 1
                 progress.progress(min(step / total_steps, 1.0))
-                progress_text.text(f"조회 중... {date_str}")
+                txt.text(f"조회 중... {date_str}")
                 d += timedelta(days=1)
                 continue
 
@@ -167,7 +131,6 @@ class ReservationChecker:
                         timeout=10,
                     )
                     res.raise_for_status()
-
                     raw_text = BeautifulSoup(res.text, "html.parser").get_text(strip=True)
                     if raw_text and "아직 예약자가 없습니다" not in raw_text:
                         names = [n.strip() for n in raw_text.split(",") if n.strip()]
@@ -175,24 +138,24 @@ class ReservationChecker:
                         row["총인원"] += len(names)
 
                         lower_names = [n.lower() for n in names]
+                        if CHILD_NAME.lower() in lower_names:
+                            child_hits.append((date_str, label, CHILD_NAME))
                         for wn in watch_names:
                             if wn and wn.lower() in lower_names:
                                 friend_hits.append((date_str, label, wn))
-
                 except Exception as e:
                     errors.append(f"{date_str} {label}: {e}")
 
                 step += 1
                 progress.progress(min(step / total_steps, 1.0))
-                progress_text.text(f"조회 중... {date_str}")
+                txt.text(f"조회 중... {date_str}")
 
             rows.append(row)
             d += timedelta(days=1)
 
         progress.empty()
-        progress_text.empty()
-
-        return rows, friend_hits, errors
+        txt.empty()
+        return rows, friend_hits, child_hits, errors
 
 
 with st.sidebar:
@@ -201,20 +164,20 @@ with st.sidebar:
         default_id = st.secrets.get("USER_ID", FALLBACK_ID)
         default_pw = st.secrets.get("USER_PW", FALLBACK_PW)
     except Exception:
-        default_id = FALLBACK_ID
-        default_pw = FALLBACK_PW
+        default_id, default_pw = FALLBACK_ID, FALLBACK_PW
 
     user_id = st.text_input("아이디", value=default_id)
     user_pw = st.text_input("비밀번호", value=default_pw, type="password")
 
     st.divider()
-    st.header("🔔 친구 감지")
+    st.header("🔔 이름 감지")
     use_friend_alert = st.checkbox("친구 감지 켜기", value=True)
-    watch_raw = st.text_area("감지 이름(쉼표 구분)", value=", ".join(DEFAULT_FRIENDS), height=90)
+    watch_raw = st.text_area("친구 이름(쉼표 구분)", value=", ".join(DEFAULT_FRIENDS), height=90)
 
     st.divider()
-    only_with_reservation = st.checkbox("예약 있는 날짜만 보기", value=True)
-    only_friend_days = st.checkbox("친구 있는 날짜만 보기", value=False)
+    only_with_reservation = st.checkbox("예약 있는 날짜만", value=True)
+    only_friend_days = st.checkbox("친구 있는 날짜만", value=False)
+    only_child_days = st.checkbox("하연 있는 날짜만", value=False)
 
 watch_names = [x.strip() for x in watch_raw.split(",") if x.strip()]
 
@@ -225,26 +188,26 @@ if st.button("🚀 오늘+30일 조회", type="primary", use_container_width=Tru
         checker = ReservationChecker(user_id, user_pw)
         with st.spinner("로그인 중..."):
             ok, msg = checker.login()
-
         if not ok:
             st.error(msg)
         else:
-            rows, hits, errors = checker.get_rolling_30d_data(watch_names if use_friend_alert else [])
+            rows, hits, child_hits, errors = checker.get_rolling_30d_data(watch_names if use_friend_alert else [])
 
             hit_set = {(d, t, n) for d, t, n in hits}
+            child_set = {(d, t, n) for d, t, n in child_hits}
             hit_dates = {d for d, _, _ in hit_set}
-
-            if use_friend_alert:
-                if hit_set:
-                    st.error(f"🚨 친구 예약 감지 {len(hit_set)}건")
-                    for d, t, n in sorted(hit_set):
-                        st.write(f"- **{d} {t}** → `{n}`")
-                else:
-                    st.info("친구 예약 감지 없음")
+            child_dates = {d for d, _, _ in child_set}
 
             total_people = sum(r["총인원"] for r in rows)
             active_days = sum(1 for r in rows if r["총인원"] > 0)
-            st.success(f"조회 완료: 총 {len(rows)}일 / 예약 있는 날 {active_days}일 / 총 인원 {total_people}명")
+
+            st.markdown(
+                f"<div class='k-summary'>"
+                f"예약일 <b>{active_days}</b>일 · 총인원 <b>{total_people}</b>명 · "
+                f"친구감지 <b>{len(hit_set)}</b>건 · 하연감지 <b>{len(child_set)}</b>건"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
             filtered = []
             for r in rows:
@@ -252,46 +215,49 @@ if st.button("🚀 오늘+30일 조회", type="primary", use_container_width=Tru
                     continue
                 if only_friend_days and r["날짜"] not in hit_dates:
                     continue
+                if only_child_days and r["날짜"] not in child_dates:
+                    continue
                 filtered.append(r)
 
             if not filtered:
                 st.info("조건에 맞는 데이터가 없어.")
             else:
+                watch_lower = {w.lower() for w in watch_names}
+                child_lower = CHILD_NAME.lower()
                 for r in filtered:
                     date_label = f"{r['날짜']} ({r['요일']})"
-                    badge = " <span class='badge'>친구 있음</span>" if r["날짜"] in hit_dates else ""
-                    st.markdown(
-                        f"<div class='k-card'><div class='k-date'>{date_label}{badge}</div><div class='k-total'>총인원 {r['총인원']}명</div></div>",
-                        unsafe_allow_html=True,
-                    )
-
-                    if r["is_closed"]:
-                        st.caption("휴무")
-                        continue
-
-                    for slot in TIME_COLUMNS:
-                        if slot not in r["slots"]:
-                            continue
-                        names = r["slots"].get(slot, [])
-                        if not names:
-                            continue
-                        rendered_names = []
-                        watch_lower = {w.lower() for w in watch_names}
-                        child_lower = CHILD_NAME.lower()
-                        for nm in names:
-                            esc = html.escape(nm)
-                            nml = nm.lower()
-                            if nml == child_lower:
-                                rendered_names.append(f"<span class='child-name'>{esc}</span>")
-                            elif nml in watch_lower:
-                                rendered_names.append(f"<span class='friend-name'>{esc}</span>")
-                            else:
-                                rendered_names.append(esc)
-                        safe = ", ".join(rendered_names)
+                    badge_friend = " <span class='badge'>친구 있음</span>" if r["날짜"] in hit_dates else ""
+                    badge_child = " <span class='badge'>하연 있음</span>" if r["날짜"] in child_dates else ""
+                    with st.expander(f"{date_label} · 총 {r['총인원']}명", expanded=False):
                         st.markdown(
-                            f"<div class='k-slot'><div class='k-slot-title'>{slot}</div><div>{safe}</div></div>",
+                            f"<div class='k-card'><span class='k-date'>{date_label}</span>"
+                            f"<span class='k-total'>총인원 {r['총인원']}명</span>{badge_friend}{badge_child}</div>",
                             unsafe_allow_html=True,
                         )
+                        if r["is_closed"]:
+                            st.caption("휴무")
+                            continue
+                        for slot in TIME_COLUMNS:
+                            if slot not in r["slots"]:
+                                continue
+                            names = r["slots"].get(slot, [])
+                            if not names:
+                                continue
+                            rendered_names = []
+                            for nm in names:
+                                esc = html.escape(nm)
+                                nml = nm.lower()
+                                if nml == child_lower:
+                                    rendered_names.append(f"<span class='child-name'>{esc}</span>")
+                                elif nml in watch_lower:
+                                    rendered_names.append(f"<span class='friend-name'>{esc}</span>")
+                                else:
+                                    rendered_names.append(esc)
+                            safe = ", ".join(rendered_names)
+                            st.markdown(
+                                f"<div class='k-slot'><div class='k-slot-title'>{slot}</div><div>{safe}</div></div>",
+                                unsafe_allow_html=True,
+                            )
 
             if errors:
                 with st.expander(f"⚠️ 조회 오류 {len(errors)}건"):
