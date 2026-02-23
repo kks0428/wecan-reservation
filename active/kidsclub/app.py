@@ -1,32 +1,47 @@
-import streamlit as st
-import requests
-from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
-import pandas as pd
-import calendar
 import html
+from datetime import datetime, timedelta
+
+import pandas as pd
+import requests
+import streamlit as st
+from bs4 import BeautifulSoup
 
 # =========================
 # 기본 설정
 # =========================
-st.set_page_config(page_title="월간 예약 조회", page_icon="📅", layout="wide")
+st.set_page_config(page_title="키즈클럽 예약 조회", page_icon="📅", layout="centered")
 
 st.markdown(
     """
 <style>
-.stDataFrame { font-size: 14px; }
-[data-testid="stSidebar"] { min-width: 220px; }
+.block-container {padding-top: 1rem; padding-bottom: 2rem; max-width: 720px;}
+.k-card {
+  border: 1px solid #E5E7EB;
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: #fff;
+}
+.k-date {font-weight: 700; font-size: 1rem;}
+.k-total {color: #B91C1C; font-weight: 700;}
+.k-slot {margin-top: 8px; padding: 8px; border-radius: 10px; background: #F9FAFB;}
+.k-slot-title {font-weight: 600; margin-bottom: 4px;}
+.k-empty {color: #6B7280;}
+.badge {
+  display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px;
+  border:1px solid #FECACA; background:#FEF2F2; color:#B91C1C; font-weight:600;
+}
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-st.title("📅 키즈클럽 월간 예약 현황")
-st.caption("좌측 사이드바에서 설정 후 '월간 전체 조회' 버튼을 누르세요.")
+st.title("📅 키즈클럽 예약 조회")
+st.caption("오늘 기준 +30일 범위만 조회됩니다.")
 
 TIME_COLUMNS = ["11~12시", "12~1시", "1~2시", "2~3시", "3~4시", "4~5시", "5~6시", "6~7시"]
 DAY_SCHEDULE_MAP = {
-    0: {},  # 월 휴무
+    0: {},
     1: {2: "5~6시", 3: "6~7시"},
     2: {4: "3~4시", 1: "4~5시", 2: "5~6시"},
     3: {1: "4~5시", 2: "5~6시", 3: "6~7시"},
@@ -35,11 +50,8 @@ DAY_SCHEDULE_MAP = {
     6: {1: "11~12시", 2: "12~1시", 3: "1~2시", 4: "2~3시", 5: "3~4시", 6: "4~5시"},
 }
 
-# 요청하신 기본 계정값
 FALLBACK_ID = "하연01"
 FALLBACK_PW = "2677"
-
-# 친구 알림 기본 목록
 DEFAULT_FRIENDS = ["채원01", "호연01", "예나01", "보아02"]
 
 
@@ -63,59 +75,62 @@ class ReservationChecker:
             }
             res = self.session.post(login_url, data=data, headers=self.headers, timeout=12)
             res.raise_for_status()
-
             if "비밀번호가 틀립니다" in res.text or "존재하지 않는 회원" in res.text:
                 return False, "아이디 또는 비밀번호가 틀렸습니다."
-
             return True, "로그인 성공"
         except requests.RequestException as e:
             return False, f"로그인 요청 실패: {e}"
         except Exception as e:
             return False, f"로그인 오류: {e}"
 
-    def get_monthly_data(self, selected_date, watch_names=None):
+    def get_rolling_30d_data(self, watch_names=None):
         watch_names = watch_names or []
+        start_date = datetime.now().date()
+        end_date = start_date + timedelta(days=30)
 
-        year = selected_date.year
-        month = selected_date.month
-        last_day = calendar.monthrange(year, month)[1]
-        start_date = datetime(year, month, 1).date()
-
-        table_data = []
+        rows = []
+        friend_hits = []
         errors = []
-        found_hits = []  # [(date, time_label, friend_name, all_names)]
 
+        # 대략 진행률 계산용
+        total_steps = 0
+        d = start_date
+        while d <= end_date:
+            total_steps += len(DAY_SCHEDULE_MAP[d.weekday()]) or 1
+            d += timedelta(days=1)
+
+        progress = st.progress(0)
         progress_text = st.empty()
-        progress_bar = st.progress(0)
+        step = 0
 
-        for i in range(last_day):
-            current_date = start_date + timedelta(days=i)
-            date_str = current_date.strftime("%Y-%m-%d")
-            weekday_num = current_date.weekday()
-            day_name = ["(월)", "(화)", "(수)", "(목)", "(금)", "(토)", "(일)"][weekday_num]
+        d = start_date
+        while d <= end_date:
+            date_str = d.strftime("%Y-%m-%d")
+            weekday_num = d.weekday()
+            day_name = ["월", "화", "수", "목", "금", "토", "일"][weekday_num]
 
-            progress_percent = (i + 1) / last_day
-            progress_bar.progress(progress_percent)
-            progress_text.text(f"{date_str} 데이터 조회 중... ({i+1}/{last_day})")
-
-            date_html = f"<b>{date_str}</b><br><span style='color:#666; font-size:12px;'>{day_name}</span>"
-            row = {"날짜": date_html, "총인원": ""}
-            for col in TIME_COLUMNS:
-                row[col] = "-"
+            row = {
+                "날짜": date_str,
+                "요일": day_name,
+                "총인원": 0,
+                "is_closed": False,
+                "slots": {},
+            }
 
             current_map = DAY_SCHEDULE_MAP[weekday_num]
             if not current_map:
-                for col in TIME_COLUMNS:
-                    row[col] = "<span style='color:#ff4b4b; opacity:0.5'>⛔</span>"
-                table_data.append(row)
+                row["is_closed"] = True
+                rows.append(row)
+                step += 1
+                progress.progress(min(step / total_steps, 1.0))
+                progress_text.text(f"조회 중... {date_str}")
+                d += timedelta(days=1)
                 continue
 
-            for t_label in current_map.values():
-                row[t_label] = ""
+            for _, label in current_map.items():
+                row["slots"][label] = []
 
-            daily_total = 0
-
-            for k, time_label in current_map.items():
+            for k, label in current_map.items():
                 try:
                     params = {"bo_table": "res", "select": date_str, "k": k}
                     res = self.session.get(
@@ -126,45 +141,35 @@ class ReservationChecker:
                     )
                     res.raise_for_status()
 
-                    soup = BeautifulSoup(res.text, "html.parser")
-                    raw_text = soup.get_text(strip=True)
-
+                    raw_text = BeautifulSoup(res.text, "html.parser").get_text(strip=True)
                     if raw_text and "아직 예약자가 없습니다" not in raw_text:
                         names = [n.strip() for n in raw_text.split(",") if n.strip()]
-                        if names:
-                            daily_total += len(names)
+                        row["slots"][label] = names
+                        row["총인원"] += len(names)
 
-                            # 친구 이름 탐지
-                            lower_names = [n.lower() for n in names]
-                            for wn in watch_names:
-                                if wn and wn.lower() in lower_names:
-                                    found_hits.append((date_str, time_label, wn, names))
-
-                            safe_names = [html.escape(n) for n in names]
-                            row[time_label] = ", ".join(safe_names)
+                        lower_names = [n.lower() for n in names]
+                        for wn in watch_names:
+                            if wn and wn.lower() in lower_names:
+                                friend_hits.append((date_str, label, wn))
 
                 except Exception as e:
-                    errors.append(f"{date_str} k={k} 오류: {e}")
+                    errors.append(f"{date_str} {label}: {e}")
 
-            row["총인원"] = f"<b>{daily_total}명</b>" if daily_total > 0 else ""
-            table_data.append(row)
+                step += 1
+                progress.progress(min(step / total_steps, 1.0))
+                progress_text.text(f"조회 중... {date_str}")
 
-        progress_bar.empty()
+            rows.append(row)
+            d += timedelta(days=1)
+
+        progress.empty()
         progress_text.empty()
 
-        if errors:
-            with st.expander(f"⚠️ 조회 중 오류 {len(errors)}건"):
-                for e in errors[:50]:
-                    st.write("-", e)
-
-        return pd.DataFrame(table_data), found_hits
+        return rows, friend_hits, errors
 
 
-# =========================
-# 사이드바
-# =========================
 with st.sidebar:
-    st.header("🔐 로그인 설정")
+    st.header("🔐 로그인")
     try:
         default_id = st.secrets.get("USER_ID", FALLBACK_ID)
         default_pw = st.secrets.get("USER_PW", FALLBACK_PW)
@@ -176,96 +181,80 @@ with st.sidebar:
     user_pw = st.text_input("비밀번호", value=default_pw, type="password")
 
     st.divider()
-    st.header("🔔 친구 알림 설정")
-    enable_friend_alert = st.checkbox("친구 예약 감지 알림 켜기", value=True)
-    watch_names_raw = st.text_area(
-        "감지 이름(쉼표 구분)",
-        value=", ".join(DEFAULT_FRIENDS),
-        help="예: 채원01, 호연01, 예나01, 보아02",
-    )
-    st.info("⚠️ 월간 조회는 데이터량이 많아 20~30초 정도 소요됩니다.")
+    st.header("🔔 친구 감지")
+    use_friend_alert = st.checkbox("친구 감지 켜기", value=True)
+    watch_raw = st.text_area("감지 이름(쉼표 구분)", value=", ".join(DEFAULT_FRIENDS), height=90)
 
-watch_names = [x.strip() for x in watch_names_raw.split(",") if x.strip()]
+    st.divider()
+    only_with_reservation = st.checkbox("예약 있는 날짜만 보기", value=True)
+    only_friend_days = st.checkbox("친구 있는 날짜만 보기", value=False)
 
+watch_names = [x.strip() for x in watch_raw.split(",") if x.strip()]
 
-# =========================
-# 메인 UI
-# =========================
-col1, col2 = st.columns([1, 2])
-with col1:
-    target_date = st.date_input("조회할 '달'의 날짜 선택", datetime.now())
-with col2:
-    st.write("")
-    st.write("")
-    btn_run = st.button("🚀 월간 전체 조회하기", type="primary", use_container_width=True)
-
-if btn_run:
+if st.button("🚀 오늘+30일 조회", type="primary", use_container_width=True):
     if not user_id or not user_pw:
-        st.warning("왼쪽 사이드바에 아이디와 비밀번호를 먼저 입력해주세요.")
+        st.warning("아이디/비밀번호를 입력해줘.")
     else:
         checker = ReservationChecker(user_id, user_pw)
+        with st.spinner("로그인 중..."):
+            ok, msg = checker.login()
 
-        with st.spinner("로그인 시도 중..."):
-            is_login, msg = checker.login()
-
-        if not is_login:
+        if not ok:
             st.error(msg)
         else:
-            df, hits = checker.get_monthly_data(
-                target_date,
-                watch_names=watch_names if enable_friend_alert else [],
-            )
+            rows, hits, errors = checker.get_rolling_30d_data(watch_names if use_friend_alert else [])
 
-            cols = ["날짜", "총인원", "11~12시", "12~1시", "1~2시", "2~3시", "3~4시", "4~5시", "5~6시", "6~7시"]
-            df = df[cols]
+            hit_set = {(d, t, n) for d, t, n in hits}
+            hit_dates = {d for d, _, _ in hit_set}
 
-            st.success(f"✅ {target_date.strftime('%Y년 %m월')} 예약 현황 조회 완료!")
-            st.caption("↔ 표가 길면 좌우 스크롤해서 확인하세요.")
-
-            if enable_friend_alert:
-                unique_hits = {(d, t, n) for d, t, n, _ in hits}
-                if unique_hits:
-                    st.error(f"🚨 친구 예약 감지됨! 총 {len(unique_hits)}건")
-                    for d, t, n in sorted(unique_hits):
-                        st.write(f"- **{d} {t}**: `{n}` 예약")
-
-                    # 간단한 알림음(브라우저)
-                    st.markdown(
-                        """
-                        <script>
-                        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                        const o = ctx.createOscillator();
-                        const g = ctx.createGain();
-                        o.type = 'sine';
-                        o.frequency.value = 880;
-                        o.connect(g); g.connect(ctx.destination);
-                        g.gain.setValueAtTime(0.0001, ctx.currentTime);
-                        g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime + 0.01);
-                        g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
-                        o.start();
-                        o.stop(ctx.currentTime + 0.36);
-                        </script>
-                        """,
-                        unsafe_allow_html=True,
-                    )
+            if use_friend_alert:
+                if hit_set:
+                    st.error(f"🚨 친구 예약 감지 {len(hit_set)}건")
+                    for d, t, n in sorted(hit_set):
+                        st.write(f"- **{d} {t}** → `{n}`")
                 else:
                     st.info("친구 예약 감지 없음")
 
-            st.markdown(
-                """
-                <style>
-                .table-container { overflow: auto; height: 75vh; border: 1px solid #ddd; border-radius: 8px; background-color: #ffffff !important; }
-                table.custom-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; min-width: 800px; }
-                table.custom-table th, table.custom-table td { color: #333333 !important; padding: 10px 8px; border-bottom: 1px solid #eee; border-right: 1px solid #eee; white-space: nowrap; vertical-align: middle; }
-                table.custom-table thead th { position: sticky; top: 0; background-color: #f0f2f6 !important; color: #333333 !important; font-weight: bold; z-index: 10; border-bottom: 2px solid #ccc; text-align: center; }
-                table.custom-table tbody td:first-child, table.custom-table thead th:first-child { position: sticky; left: 0; background-color: #fafafa !important; z-index: 5; border-right: 2px solid #ccc; text-align: center; min-width: 85px; }
-                table.custom-table thead th:first-child { z-index: 15; background-color: #e6e9ef !important; }
-                table.custom-table td:nth-child(2) { background-color: #fffbf0 !important; text-align: center; font-weight: bold; color: #d63031 !important; }
-                table.custom-table td:not(:first-child):not(:nth-child(2)) { text-align: left; }
-                </style>
-                """,
-                unsafe_allow_html=True,
-            )
+            total_people = sum(r["총인원"] for r in rows)
+            active_days = sum(1 for r in rows if r["총인원"] > 0)
+            st.success(f"조회 완료: 총 {len(rows)}일 / 예약 있는 날 {active_days}일 / 총 인원 {total_people}명")
 
-            html_table = df.to_html(index=False, classes="custom-table", escape=False)
-            st.markdown(f'<div class="table-container">{html_table}</div>', unsafe_allow_html=True)
+            filtered = []
+            for r in rows:
+                if only_with_reservation and r["총인원"] == 0:
+                    continue
+                if only_friend_days and r["날짜"] not in hit_dates:
+                    continue
+                filtered.append(r)
+
+            if not filtered:
+                st.info("조건에 맞는 데이터가 없어.")
+            else:
+                for r in filtered:
+                    date_label = f"{r['날짜']} ({r['요일']})"
+                    badge = " <span class='badge'>친구 있음</span>" if r["날짜"] in hit_dates else ""
+                    st.markdown(
+                        f"<div class='k-card'><div class='k-date'>{date_label}{badge}</div><div class='k-total'>총인원 {r['총인원']}명</div></div>",
+                        unsafe_allow_html=True,
+                    )
+
+                    if r["is_closed"]:
+                        st.caption("휴무")
+                        continue
+
+                    for slot in TIME_COLUMNS:
+                        if slot not in r["slots"]:
+                            continue
+                        names = r["slots"].get(slot, [])
+                        if not names:
+                            continue
+                        safe = ", ".join(html.escape(x) for x in names)
+                        st.markdown(
+                            f"<div class='k-slot'><div class='k-slot-title'>{slot}</div><div>{safe}</div></div>",
+                            unsafe_allow_html=True,
+                        )
+
+            if errors:
+                with st.expander(f"⚠️ 조회 오류 {len(errors)}건"):
+                    for e in errors[:80]:
+                        st.write("-", e)
