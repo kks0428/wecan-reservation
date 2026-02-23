@@ -29,7 +29,7 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
   color: var(--text) !important;
 }
 
-.block-container {max-width: 760px; padding-top: .8rem; padding-bottom: 2rem;}
+.block-container {max-width: 760px; padding-top: 1.6rem; padding-bottom: 2rem;}
 
 .hero {
   background: linear-gradient(135deg,#2563EB 0%, #7C3AED 100%);
@@ -43,7 +43,7 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 .hero-sub {font-size: .85rem; opacity: .92; margin-top: 4px;}
 
 .k-summary {
-  position: sticky; top: 0; z-index: 40;
+  position: sticky; top: 8px; z-index: 40;
   background: var(--surface) !important;
   border: 1px solid var(--line);
   border-radius: 12px;
