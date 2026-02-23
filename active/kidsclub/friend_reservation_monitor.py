@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import json
 import time
-import calendar
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -62,34 +61,33 @@ def login(session: requests.Session):
         raise RuntimeError("login failed")
 
 
-def collect_month_snapshot(session: requests.Session, target_date: datetime, watch_names):
-    year, month = target_date.year, target_date.month
-    last_day = calendar.monthrange(year, month)[1]
-    start_date = datetime(year, month, 1).date()
+def collect_rolling_30d_snapshot(session: requests.Session, watch_names):
+    start_date = datetime.now().date()
+    end_date = start_date + timedelta(days=30)
 
     snapshot = set()
-    for i in range(last_day):
-        current_date = start_date + timedelta(days=i)
+    current_date = start_date
+    while current_date <= end_date:
         date_str = current_date.strftime("%Y-%m-%d")
         weekday_num = current_date.weekday()
         current_map = DAY_SCHEDULE_MAP[weekday_num]
-        if not current_map:
-            continue
+        if current_map:
+            for k, time_label in current_map.items():
+                params = {"bo_table": "res", "select": date_str, "k": k}
+                r = session.get(LIST_URL, params=params, headers=HEADERS, timeout=10)
+                r.raise_for_status()
+                soup = BeautifulSoup(r.text, "html.parser")
+                raw_text = soup.get_text(strip=True)
+                if not raw_text or "아직 예약자가 없습니다" in raw_text:
+                    continue
 
-        for k, time_label in current_map.items():
-            params = {"bo_table": "res", "select": date_str, "k": k}
-            r = session.get(LIST_URL, params=params, headers=HEADERS, timeout=10)
-            r.raise_for_status()
-            soup = BeautifulSoup(r.text, "html.parser")
-            raw_text = soup.get_text(strip=True)
-            if not raw_text or "아직 예약자가 없습니다" in raw_text:
-                continue
+                names = [n.strip() for n in raw_text.split(",") if n.strip()]
+                lower = [n.lower() for n in names]
+                for wn in watch_names:
+                    if wn.lower() in lower:
+                        snapshot.add((date_str, time_label, wn))
+        current_date += timedelta(days=1)
 
-            names = [n.strip() for n in raw_text.split(",") if n.strip()]
-            lower = [n.lower() for n in names]
-            for wn in watch_names:
-                if wn.lower() in lower:
-                    snapshot.add((date_str, time_label, wn))
     return snapshot
 
 
@@ -121,7 +119,7 @@ def main():
 
     # 최초 기준 스냅샷(이전 예약 무시)
     login(session)
-    current = collect_month_snapshot(session, datetime.now(), WATCH_NAMES)
+    current = collect_rolling_30d_snapshot(session, WATCH_NAMES)
     state = load_state()
 
     if not state.get("baseline"):
@@ -138,7 +136,7 @@ def main():
         try:
             session = requests.Session()
             login(session)
-            now_snapshot = collect_month_snapshot(session, datetime.now(), WATCH_NAMES)
+            now_snapshot = collect_rolling_30d_snapshot(session, WATCH_NAMES)
 
             new_hits = now_snapshot - baseline - last_seen
             if new_hits:
