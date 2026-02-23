@@ -1,0 +1,40 @@
+{
+  "generatedAtUTC": "2026-02-22T18:34:01.176687+00:00",
+  "rpc": "https://mainnet.helius-rpc.com/?api-key=5073f9a7-2c12-4d66-b2c7-74246ee06129",
+  "days": 14,
+  "supply": 999975435.689512,
+  "top": [
+    {
+      "rank": 1,
+      "tokenAccount": "EZqZ7ssy6YGdrdFFnjw7q4RWPTpsgwoNniEM59HJXgdq",
+      "owner": "9ZPsRWGkukYeWg2Z7eZ8NaTBZ1DSuBUVzLcGQWZgE4Y4",
+      "amount": 163469573.536064,
+      "pct": 16.34735891520645,
+      "error": "{'code': -32429, 'message': 'rate limited'}"
+    },
+    {
+      "rank": 2,
+      "tokenAccount": "AkGgf2hquMp5CWZ7Pd2LKK18EpcDmTZh7iAzSvw4kYtY",
+      "owner": "AC5RDfQFmDS1deWZos921JfqscXdByf8BKHs5ACWjtW2",
+      "amount": 67496652.538314,
+      "pct": 6.74983105877727,
+      "error": "{'code': -32429, 'message': 'rate limited'}"
+    },
+    {
+      "rank": 3,
+      "tokenAccount": "8mQUcYaDL8DpVMViQskGGb9NJMbJ8bYjd5gxPZm8rBHd",
+      "owner": "u6PJ8DtQuPFnfmwHbGFULQ4u4EgjDiyYKjVEsynXq2w",
+      "amount": 59580628.633339,
+      "pct": 5.9582092226351975,
+      "error": "{'code': -32429, 'message': 'rate limited'}"
+    },
+    {
+      "rank": 4,
+      "tokenAccount": "GC4bQRtMhR4MYTVfthgqwRw9j1i44ft9WnTur5wWkXGb",
+      "owner": "DRAf8QxQY86h7yeHdo9GytXAF6GoTTT8oZjknwXV6dCS",
+      "amount": 30621975.862676,
+      "pct": 3.062272808887676,
+      "error": "{'code': -32429, 'message': 'rate limited'}"
+    }
+  ]
+}

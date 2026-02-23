@@ -140,7 +140,7 @@ def send_telegram(msg: str) -> None:
     subprocess.run(cmd, shell=True, check=False)
 
 
-def run_once(notify: bool = False) -> int:
+def run_once(notify: bool = False, always_notify: bool = False) -> int:
     cur = fetch_top_pair()
     prev = load_state()
 
@@ -151,7 +151,7 @@ def run_once(notify: bool = False) -> int:
     for a in alerts:
         print(a)
 
-    if notify and (alerts or signal != "조건부 분할매수"):
+    if notify and (always_notify or alerts or signal != "조건부 분할매수"):
         msg = "[PENGUIN SIGNAL] " + signal + "\n" + line
         if alerts:
             msg += "\n" + "\n".join(alerts)
@@ -174,14 +174,15 @@ def main() -> int:
     ap.add_argument("--interval", type=int, default=0, help="seconds; 0 means run once")
     ap.add_argument("--once", action="store_true")
     ap.add_argument("--notify", action="store_true", help="send Telegram alert when thresholds hit")
+    ap.add_argument("--always-notify", action="store_true", help="send Telegram message every run")
     args = ap.parse_args()
 
     if args.once or args.interval <= 0:
-        return run_once(notify=args.notify)
+        return run_once(notify=args.notify, always_notify=args.always_notify)
 
     while True:
         try:
-            run_once(notify=args.notify)
+            run_once(notify=args.notify, always_notify=args.always_notify)
         except Exception as e:
             print(f"[{now_kst()}] ERROR: {e}")
         time.sleep(args.interval)

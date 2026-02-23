@@ -1,0 +1,7 @@
+
+# Local runtime artifacts
+active/rag/.env
+active/rag/.venv/
+active/rag/qdrant_storage/
+active/rag/.ingest_manifest.json
+active/market-monitor/.penguin_state.json
