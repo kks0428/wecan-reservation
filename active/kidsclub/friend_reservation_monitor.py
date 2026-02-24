@@ -14,12 +14,12 @@ LIST_URL = f"{BASE_URL}/theme/rs/skin/board/rs/write_res_list_get.php"
 USER_ID = "하연01"
 USER_PW = "2677"
 WATCH_NAMES = ["채원01", "호연01", "예나01", "보아02"]
-POLL_SECONDS = 600  # 10분
+POLL_SECONDS = 1800  # 30분
+RETRY_SECONDS = 90
 CHAT_ID = "497612383"
 TOKEN_FILE = Path("/home/kspoopoo/openclaw/secrets/telegram_main_bot_token")
 STATE_PATH = Path("/home/kspoopoo/.openclaw/workspace/state/friend_reservation_state.json")
 
-TIME_COLUMNS = ["11~12시", "12~1시", "1~2시", "2~3시", "3~4시", "4~5시", "5~6시", "6~7시"]
 DAY_SCHEDULE_MAP = {
     0: {},
     1: {2: "5~6시", 3: "6~7시"},
@@ -36,6 +36,10 @@ HEADERS = {
 }
 
 
+def log(msg: str):
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
+
+
 def load_token() -> str:
     t = TOKEN_FILE.read_text(encoding="utf-8").strip()
     if not t:
@@ -47,6 +51,13 @@ def send_telegram(token: str, text: str):
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     r = requests.post(url, data={"chat_id": CHAT_ID, "text": text}, timeout=15)
     r.raise_for_status()
+
+
+def safe_telegram(token: str, text: str):
+    try:
+        send_telegram(token, text)
+    except Exception as e:
+        log(f"telegram send failed: {e}")
 
 
 def login(session: requests.Session):
@@ -76,8 +87,7 @@ def collect_rolling_30d_snapshot(session: requests.Session, watch_names):
                 params = {"bo_table": "res", "select": date_str, "k": k}
                 r = session.get(LIST_URL, params=params, headers=HEADERS, timeout=10)
                 r.raise_for_status()
-                soup = BeautifulSoup(r.text, "html.parser")
-                raw_text = soup.get_text(strip=True)
+                raw_text = BeautifulSoup(r.text, "html.parser").get_text(strip=True)
                 if not raw_text or "아직 예약자가 없습니다" in raw_text:
                     continue
 
@@ -113,48 +123,57 @@ def save_state(baseline, last_seen):
     )
 
 
-def main():
-    token = load_token()
+def run_once_cycle(token: str, baseline: set, last_seen: set):
     session = requests.Session()
-
-    # 최초 기준 스냅샷(이전 예약 무시)
     login(session)
-    current = collect_rolling_30d_snapshot(session, WATCH_NAMES)
-    state = load_state()
+    now_snapshot = collect_rolling_30d_snapshot(session, WATCH_NAMES)
 
-    if not state.get("baseline"):
-        baseline = set(current)
-        last_seen = set(current)
-        save_state(baseline, last_seen)
-        send_telegram(token, "✅ 친구 예약 모니터 시작(10분 주기). 현재 시점 이전 예약은 알림에서 제외합니다.")
+    new_hits = now_snapshot - baseline - last_seen
+    if new_hits:
+        lines = ["🚨 신규 친구 예약 감지"]
+        for d, t, n in sorted(new_hits):
+            lines.append(f"- {d} {t}: {n}")
+        safe_telegram(token, "\n".join(lines))
+        log(f"new hits: {len(new_hits)}")
     else:
-        baseline = set(tuple(x) for x in state.get("baseline", []))
-        last_seen = set(tuple(x) for x in state.get("last_seen", []))
-        send_telegram(token, "✅ 친구 예약 모니터 재시작(10분 주기).")
+        log("no new hits")
 
+    save_state(baseline, now_snapshot)
+    return now_snapshot
+
+
+def main():
     while True:
         try:
+            token = load_token()
             session = requests.Session()
             login(session)
-            now_snapshot = collect_rolling_30d_snapshot(session, WATCH_NAMES)
+            current = collect_rolling_30d_snapshot(session, WATCH_NAMES)
+            state = load_state()
 
-            new_hits = now_snapshot - baseline - last_seen
-            if new_hits:
-                lines = ["🚨 신규 친구 예약 감지"]
-                for d, t, n in sorted(new_hits):
-                    lines.append(f"- {d} {t}: {n}")
-                send_telegram(token, "\n".join(lines))
+            if not state.get("baseline"):
+                baseline = set(current)
+                last_seen = set(current)
+                save_state(baseline, last_seen)
+                safe_telegram(token, "✅ 친구 예약 모니터 시작(30분 주기). 현재 시점 이전 예약은 알림에서 제외합니다.")
+                log("monitor started with new baseline")
+            else:
+                baseline = set(tuple(x) for x in state.get("baseline", []))
+                last_seen = set(tuple(x) for x in state.get("last_seen", []))
+                safe_telegram(token, "✅ 친구 예약 모니터 재시작(30분 주기).")
+                log("monitor restarted with existing baseline")
 
-            save_state(baseline, now_snapshot)
-            last_seen = now_snapshot
+            while True:
+                try:
+                    last_seen = run_once_cycle(token, baseline, last_seen)
+                except Exception as e:
+                    log(f"cycle error: {e}")
+                    safe_telegram(token, f"⚠️ 친구 예약 모니터 오류: {e}")
+                time.sleep(POLL_SECONDS)
 
         except Exception as e:
-            try:
-                send_telegram(token, f"⚠️ 친구 예약 모니터 오류: {e}")
-            except Exception:
-                pass
-
-        time.sleep(POLL_SECONDS)
+            log(f"fatal init error: {e}; retry in {RETRY_SECONDS}s")
+            time.sleep(RETRY_SECONDS)
 
 
 if __name__ == "__main__":
