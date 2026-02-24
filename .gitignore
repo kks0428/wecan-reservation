@@ -5,3 +5,10 @@ active/rag/.venv/
 active/rag/qdrant_storage/
 active/rag/.ingest_manifest.json
 active/market-monitor/.penguin_state.json
+
+# kidsclub runtime artifacts
+active/kidsclub/.venv/
+active/kidsclub/*.log
+active/kidsclub/.streamlit/secrets.toml
+state/friend_reservation_state.json
+memory/2026-02-24.md
