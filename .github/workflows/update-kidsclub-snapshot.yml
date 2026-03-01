@@ -1,0 +1,44 @@
+name: Update Kidsclub Snapshot
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r active/kidsclub/requirements.txt
+
+      - name: Update snapshot
+        env:
+          WECAN_USER_ID: ${{ secrets.WECAN_USER_ID }}
+          WECAN_USER_PW: ${{ secrets.WECAN_USER_PW }}
+          WECAN_WATCH_NAMES: ${{ secrets.WECAN_WATCH_NAMES }}
+          WECAN_CHILD_NAME: ${{ secrets.WECAN_CHILD_NAME }}
+          WECAN_SNAPSHOT_PATH: active/kidsclub/data/kidsclub_latest_snapshot.json
+        run: python active/kidsclub/update_snapshot.py
+
+      - name: Commit & push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add active/kidsclub/data/kidsclub_latest_snapshot.json
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "chore: update kidsclub snapshot"
+          git push
