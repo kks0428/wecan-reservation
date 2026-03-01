@@ -5,6 +5,10 @@ on:
     - cron: "*/30 * * * *"
   workflow_dispatch:
 
+concurrency:
+  group: kidsclub-snapshot-main
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -14,11 +18,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: active/kidsclub/requirements.txt
 
       - name: Install deps
         run: |
@@ -36,9 +45,23 @@ jobs:
 
       - name: Commit & push if changed
         run: |
+          set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add active/kidsclub/data/kidsclub_latest_snapshot.json
           git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "chore: update kidsclub snapshot"
-          git push
+
+          for i in 1 2; do
+            git fetch origin main
+            git rebase origin/main
+            if git push origin HEAD:main; then
+              echo "push success on attempt $i"
+              exit 0
+            fi
+            echo "push failed on attempt $i, retrying..."
+            sleep 2
+          done
+
+          echo "failed to push after retries"
+          exit 1

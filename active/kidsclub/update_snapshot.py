@@ -17,6 +17,8 @@ USER_PW = os.getenv("WECAN_USER_PW", "")
 WATCH_NAMES = [x.strip() for x in os.getenv("WECAN_WATCH_NAMES", "채원01,호연01,예나01,보아02").split(",") if x.strip()]
 CHILD_NAME = os.getenv("WECAN_CHILD_NAME", "하연01")
 SNAPSHOT_PATH = Path(os.getenv("WECAN_SNAPSHOT_PATH", str(Path(__file__).parent / "data" / "kidsclub_latest_snapshot.json")))
+LOGIN_TIMEOUT = float(os.getenv("WECAN_LOGIN_TIMEOUT", "8"))
+REQUEST_TIMEOUT = float(os.getenv("WECAN_REQUEST_TIMEOUT", "7"))
 
 DAY_SCHEDULE_MAP = {
     0: {},
@@ -43,7 +45,7 @@ def login(session: requests.Session):
         "mb_password": USER_PW,
         "url": BASE_URL + "/",
     }
-    r = session.post(LOGIN_URL, data=data, headers=HEADERS, timeout=12)
+    r = session.post(LOGIN_URL, data=data, headers=HEADERS, timeout=LOGIN_TIMEOUT)
     r.raise_for_status()
     if "비밀번호가 틀립니다" in r.text or "존재하지 않는 회원" in r.text:
         raise RuntimeError("login failed")
@@ -75,7 +77,7 @@ def collect_rows(session: requests.Session):
 
         for k, time_label in current_map.items():
             params = {"bo_table": "res", "select": date_str, "k": k}
-            r = session.get(LIST_URL, params=params, headers=HEADERS, timeout=10)
+            r = session.get(LIST_URL, params=params, headers=HEADERS, timeout=REQUEST_TIMEOUT)
             r.raise_for_status()
             raw_text = BeautifulSoup(r.text, "html.parser").get_text(strip=True)
             if not raw_text or "아직 예약자가 없습니다" in raw_text:
@@ -118,7 +120,15 @@ def main():
     }
 
     SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SNAPSHOT_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    new_text = json.dumps(payload, ensure_ascii=False, indent=2)
+
+    if SNAPSHOT_PATH.exists():
+        old_text = SNAPSHOT_PATH.read_text(encoding="utf-8")
+        if old_text == new_text:
+            print(f"snapshot_unchanged={SNAPSHOT_PATH}")
+            return
+
+    SNAPSHOT_PATH.write_text(new_text, encoding="utf-8")
     print(f"snapshot_written={SNAPSHOT_PATH}")
 
 
