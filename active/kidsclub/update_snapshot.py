@@ -53,7 +53,7 @@ def login(session: requests.Session):
 
 def collect_rows(session: requests.Session):
     start_date = datetime.now().date()
-    end_date = start_date + timedelta(days=30)
+    end_date = start_date + timedelta(days=28)
 
     rows, friend_hits, child_hits = [], [], []
 
@@ -62,6 +62,12 @@ def collect_rows(session: requests.Session):
         date_str = current_date.strftime("%Y-%m-%d")
         weekday_num = current_date.weekday()
         day_name = ["월", "화", "수", "목", "금", "토", "일"][weekday_num]
+
+        # 월요일(0)은 완전 스킵: 조회도 하지 않고 결과 행도 만들지 않음
+        if weekday_num == 0:
+            current_date += timedelta(days=1)
+            continue
+
         current_map = DAY_SCHEDULE_MAP[weekday_num]
 
         row = {"날짜": date_str, "요일": day_name, "총인원": 0, "is_closed": False, "slots": {}}

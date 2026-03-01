@@ -164,7 +164,7 @@ class ReservationChecker:
 
     def get_rolling_30d_data(self, watch_names=None):
         watch_names = watch_names or []
-        start_date, end_date = datetime.now().date(), datetime.now().date() + timedelta(days=30)
+        start_date, end_date = datetime.now().date(), datetime.now().date() + timedelta(days=28)
 
         rows, friend_hits, child_hits, errors = [], [], [], []
         total_steps, d = 0, start_date
@@ -177,6 +177,12 @@ class ReservationChecker:
         while d <= end_date:
             date_str, weekday_num = d.strftime("%Y-%m-%d"), d.weekday()
             day_name = ["월", "화", "수", "목", "금", "토", "일"][weekday_num]
+
+            # 월요일(0)은 완전 스킵: 조회도 하지 않고 결과 행도 만들지 않음
+            if weekday_num == 0:
+                d += timedelta(days=1)
+                continue
+
             row = {"날짜": date_str, "요일": day_name, "총인원": 0, "is_closed": False, "slots": {}}
             current_map = DAY_SCHEDULE_MAP[weekday_num]
 
@@ -310,7 +316,7 @@ st.markdown(
     """
 <div class='hero'>
   <div class='hero-title'>키즈클럽 스마트 조회</div>
-  <div class='hero-sub'>오늘부터 30일 범위 · 친구/하연 자동 하이라이트 · 모바일 최적화</div>
+  <div class='hero-sub'>오늘부터 28일 범위(월요일 제외) · 친구/하연 자동 하이라이트 · 모바일 최적화</div>
 </div>
 """,
     unsafe_allow_html=True,
@@ -359,7 +365,7 @@ if use_server_snapshot:
         child_hits = snap.get("child_hits", [])
         render_result(rows, hits, child_hits, [], watch_names if use_friend_alert else [])
 
-if st.button("🚀 오늘+30일 즉시 조회", type="primary", use_container_width=True):
+if st.button("🚀 오늘+28일 즉시 조회", type="primary", use_container_width=True):
     if not user_id or not user_pw:
         st.warning("아이디/비밀번호를 입력해줘.")
     else:
