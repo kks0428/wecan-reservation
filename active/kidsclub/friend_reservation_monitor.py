@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -7,18 +8,20 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
-BASE_URL = "https://wecankidsclub.younmanager.com"
+BASE_URL = os.getenv("WECAN_BASE_URL", "https://wecankidsclub.younmanager.com")
 LOGIN_URL = f"{BASE_URL}/bbs/login_check.php"
 LIST_URL = f"{BASE_URL}/theme/rs/skin/board/rs/write_res_list_get.php"
 
-USER_ID = "하연01"
-USER_PW = "2677"
-WATCH_NAMES = ["채원01", "호연01", "예나01", "보아02"]
-POLL_SECONDS = 1800  # 30분
-RETRY_SECONDS = 90
-CHAT_ID = "497612383"
-TOKEN_FILE = Path("/home/kspoopoo/openclaw/secrets/telegram_main_bot_token")
-STATE_PATH = Path("/home/kspoopoo/.openclaw/workspace/state/friend_reservation_state.json")
+USER_ID = os.getenv("WECAN_USER_ID", "")
+USER_PW = os.getenv("WECAN_USER_PW", "")
+WATCH_NAMES = [x.strip() for x in os.getenv("WECAN_WATCH_NAMES", "채원01,호연01,예나01,보아02").split(",") if x.strip()]
+CHILD_NAME = os.getenv("WECAN_CHILD_NAME", "하연01")
+POLL_SECONDS = int(os.getenv("WECAN_POLL_SECONDS", "1800"))  # 기본 30분
+RETRY_SECONDS = int(os.getenv("WECAN_RETRY_SECONDS", "90"))
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "497612383")
+TOKEN_FILE = Path(os.getenv("TELEGRAM_TOKEN_FILE", "/home/kspoopoo/openclaw/secrets/telegram_main_bot_token"))
+STATE_PATH = Path(os.getenv("WECAN_STATE_PATH", "/home/kspoopoo/.openclaw/workspace/state/friend_reservation_state.json"))
+SNAPSHOT_PATH = Path(os.getenv("WECAN_SNAPSHOT_PATH", "/home/kspoopoo/.openclaw/workspace/state/kidsclub_latest_snapshot.json"))
 
 DAY_SCHEDULE_MAP = {
     0: {},
@@ -38,6 +41,11 @@ HEADERS = {
 
 def log(msg: str):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
+
+
+def require_env():
+    if not USER_ID or not USER_PW:
+        raise RuntimeError("WECAN_USER_ID / WECAN_USER_PW must be set via environment")
 
 
 def load_token() -> str:
@@ -77,28 +85,48 @@ def collect_rolling_30d_snapshot(session: requests.Session, watch_names):
     end_date = start_date + timedelta(days=30)
 
     snapshot = set()
+    rows = []
     current_date = start_date
     while current_date <= end_date:
         date_str = current_date.strftime("%Y-%m-%d")
         weekday_num = current_date.weekday()
+        day_name = ["월", "화", "수", "목", "금", "토", "일"][weekday_num]
         current_map = DAY_SCHEDULE_MAP[weekday_num]
-        if current_map:
-            for k, time_label in current_map.items():
-                params = {"bo_table": "res", "select": date_str, "k": k}
-                r = session.get(LIST_URL, params=params, headers=HEADERS, timeout=10)
-                r.raise_for_status()
-                raw_text = BeautifulSoup(r.text, "html.parser").get_text(strip=True)
-                if not raw_text or "아직 예약자가 없습니다" in raw_text:
-                    continue
+        row = {"날짜": date_str, "요일": day_name, "총인원": 0, "is_closed": False, "slots": {}}
 
-                names = [n.strip() for n in raw_text.split(",") if n.strip()]
-                lower = [n.lower() for n in names]
-                for wn in watch_names:
-                    if wn.lower() in lower:
-                        snapshot.add((date_str, time_label, wn))
+        if not current_map:
+            row["is_closed"] = True
+            rows.append(row)
+            current_date += timedelta(days=1)
+            continue
+
+        for _, label in current_map.items():
+            row["slots"][label] = []
+
+        for k, time_label in current_map.items():
+            params = {"bo_table": "res", "select": date_str, "k": k}
+            r = session.get(LIST_URL, params=params, headers=HEADERS, timeout=10)
+            r.raise_for_status()
+            raw_text = BeautifulSoup(r.text, "html.parser").get_text(strip=True)
+            if not raw_text or "아직 예약자가 없습니다" in raw_text:
+                continue
+
+            names = [n.strip() for n in raw_text.split(",") if n.strip()]
+            row["slots"][time_label] = names
+            row["총인원"] += len(names)
+
+            lower = [n.lower() for n in names]
+            if CHILD_NAME and CHILD_NAME.lower() in lower:
+                snapshot.add((date_str, time_label, CHILD_NAME))
+
+            for wn in watch_names:
+                if wn.lower() in lower:
+                    snapshot.add((date_str, time_label, wn))
+
+        rows.append(row)
         current_date += timedelta(days=1)
 
-    return snapshot
+    return snapshot, rows
 
 
 def load_state():
@@ -121,12 +149,36 @@ def save_state(baseline, last_seen):
         ),
         encoding="utf-8",
     )
+    try:
+        os.chmod(STATE_PATH, 0o600)
+    except Exception:
+        pass
+
+
+def save_snapshot(rows, snapshot):
+    SNAPSHOT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    watch_hits = sorted([x for x in snapshot if x[2] in WATCH_NAMES])
+    child_hits = sorted([x for x in snapshot if x[2] == CHILD_NAME]) if CHILD_NAME else []
+
+    payload = {
+        "updatedAt": datetime.now().isoformat(),
+        "rows": rows,
+        "friend_hits": watch_hits,
+        "child_hits": child_hits,
+        "watch_names": WATCH_NAMES,
+        "child_name": CHILD_NAME,
+    }
+    SNAPSHOT_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        os.chmod(SNAPSHOT_PATH, 0o600)
+    except Exception:
+        pass
 
 
 def run_once_cycle(token: str, baseline: set, last_seen: set):
     session = requests.Session()
     login(session)
-    now_snapshot = collect_rolling_30d_snapshot(session, WATCH_NAMES)
+    now_snapshot, rows = collect_rolling_30d_snapshot(session, WATCH_NAMES)
 
     new_hits = now_snapshot - baseline - last_seen
     if new_hits:
@@ -139,27 +191,31 @@ def run_once_cycle(token: str, baseline: set, last_seen: set):
         log("no new hits")
 
     save_state(baseline, now_snapshot)
+    save_snapshot(rows, now_snapshot)
     return now_snapshot
 
 
 def main():
     while True:
         try:
+            require_env()
             token = load_token()
             session = requests.Session()
             login(session)
-            current = collect_rolling_30d_snapshot(session, WATCH_NAMES)
+            current_snapshot, rows = collect_rolling_30d_snapshot(session, WATCH_NAMES)
             state = load_state()
 
             if not state.get("baseline"):
-                baseline = set(current)
-                last_seen = set(current)
+                baseline = set(current_snapshot)
+                last_seen = set(current_snapshot)
                 save_state(baseline, last_seen)
+                save_snapshot(rows, current_snapshot)
                 safe_telegram(token, "✅ 친구 예약 모니터 시작(30분 주기). 현재 시점 이전 예약은 알림에서 제외합니다.")
                 log("monitor started with new baseline")
             else:
                 baseline = set(tuple(x) for x in state.get("baseline", []))
                 last_seen = set(tuple(x) for x in state.get("last_seen", []))
+                save_snapshot(rows, current_snapshot)
                 safe_telegram(token, "✅ 친구 예약 모니터 재시작(30분 주기).")
                 log("monitor restarted with existing baseline")
 

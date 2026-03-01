@@ -1,5 +1,8 @@
 import html
+import json
+import os
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import requests
 import streamlit as st
@@ -118,10 +121,20 @@ DAY_SCHEDULE_MAP = {
     6: {1: "11~12시", 2: "12~1시", 3: "1~2시", 4: "2~3시", 5: "3~4시", 6: "4~5시"},
 }
 
-FALLBACK_ID = "하연01"
-FALLBACK_PW = "2677"
+FALLBACK_ID = ""
+FALLBACK_PW = ""
 DEFAULT_FRIENDS = ["채원01", "호연01", "예나01", "보아02"]
-CHILD_NAME = "하연01"
+CHILD_NAME = os.getenv("WECAN_CHILD_NAME", "하연01")
+SNAPSHOT_PATH = Path(os.getenv("WECAN_SNAPSHOT_PATH", str(Path(__file__).parent / "data" / "kidsclub_latest_snapshot.json")))
+
+
+def load_server_snapshot(path: Path):
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 class ReservationChecker:
@@ -215,6 +228,84 @@ class ReservationChecker:
         return rows, friend_hits, child_hits, errors
 
 
+def render_result(rows, hits, child_hits, errors, watch_names):
+    hit_set = {(d, t, n) for d, t, n in hits}
+    child_set = {(d, t, n) for d, t, n in child_hits}
+    hit_dates = {d for d, _, _ in hit_set}
+    child_dates = {d for d, _, _ in child_set}
+
+    total_people = sum(r["총인원"] for r in rows)
+    active_days = sum(1 for r in rows if r["총인원"] > 0)
+
+    st.markdown(
+        f"<div class='k-summary'>"
+        f"<span class='k-chip'>예약일 {active_days}일</span>"
+        f"<span class='k-chip'>총인원 {total_people}명</span>"
+        f"<span class='k-chip'>친구감지 {len(hit_set)}건</span>"
+        f"<span class='k-chip'>하연감지 {len(child_set)}건</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    filtered = []
+    for r in rows:
+        if only_with_reservation and r["총인원"] == 0:
+            continue
+        if only_friend_days and r["날짜"] not in hit_dates:
+            continue
+        if only_child_days and r["날짜"] not in child_dates:
+            continue
+        filtered.append(r)
+
+    if not filtered:
+        st.info("조건에 맞는 데이터가 없어.")
+    else:
+        watch_lower = {w.lower() for w in watch_names}
+        child_lower = CHILD_NAME.lower()
+
+        for r in filtered:
+            date_label = f"{r['날짜']} ({r['요일']})"
+            lead_flags = []
+            if r["날짜"] in child_dates:
+                lead_flags.append("👧 하연")
+            if r["날짜"] in hit_dates:
+                lead_flags.append("👥 친구")
+            flag_text = f" | {' · '.join(lead_flags)}" if lead_flags else ""
+
+            with st.expander(f"{date_label} · 총 {r['총인원']}명{flag_text}", expanded=False):
+                if r["is_closed"]:
+                    st.caption("휴무")
+                    continue
+
+                for slot in TIME_COLUMNS:
+                    if slot not in r["slots"]:
+                        continue
+                    names = r["slots"].get(slot, [])
+                    if not names:
+                        continue
+
+                    rendered = []
+                    for nm in names:
+                        esc = html.escape(nm)
+                        low = nm.lower()
+                        if low == child_lower:
+                            rendered.append(f"<span class='child-name'>{esc}</span>")
+                        elif low in watch_lower:
+                            rendered.append(f"<span class='friend-name'>{esc}</span>")
+                        else:
+                            rendered.append(esc)
+
+                    st.markdown(
+                        f"<div class='k-slot'><div class='k-slot-title'>{slot}</div><div>{', '.join(rendered)}</div></div>",
+                        unsafe_allow_html=True,
+                    )
+
+    if errors:
+        with st.expander(f"⚠️ 조회 오류 {len(errors)}건"):
+            for e in errors[:80]:
+                st.write("-", e)
+
+
 st.markdown(
     """
 <div class='hero'>
@@ -246,9 +337,25 @@ with st.sidebar:
     only_friend_days = st.checkbox("친구 있는 날짜만", value=False)
     only_child_days = st.checkbox("하연 있는 날짜만", value=False)
 
+    st.divider()
+    st.header("⚙️ 데이터 소스")
+    use_server_snapshot = st.checkbox("서버 30분 스냅샷 사용", value=True)
+
 watch_names = [x.strip() for x in watch_raw.split(",") if x.strip()]
 
-if st.button("🚀 오늘+30일 조회", type="primary", use_container_width=True):
+if use_server_snapshot:
+    snap = load_server_snapshot(SNAPSHOT_PATH)
+    if not snap:
+        st.warning("서버 스냅샷이 아직 없어. 모니터 프로세스 실행 후 새로고침해줘.")
+    else:
+        updated_at = snap.get("updatedAt", "unknown")
+        st.caption(f"🕒 서버 갱신 시각: {updated_at}")
+        rows = snap.get("rows", [])
+        hits = snap.get("friend_hits", [])
+        child_hits = snap.get("child_hits", [])
+        render_result(rows, hits, child_hits, [], watch_names if use_friend_alert else [])
+
+if st.button("🚀 오늘+30일 즉시 조회", type="primary", use_container_width=True):
     if not user_id or not user_pw:
         st.warning("아이디/비밀번호를 입력해줘.")
     else:
@@ -259,78 +366,4 @@ if st.button("🚀 오늘+30일 조회", type="primary", use_container_width=Tru
             st.error(msg)
         else:
             rows, hits, child_hits, errors = checker.get_rolling_30d_data(watch_names if use_friend_alert else [])
-            hit_set = {(d, t, n) for d, t, n in hits}
-            child_set = {(d, t, n) for d, t, n in child_hits}
-            hit_dates = {d for d, _, _ in hit_set}
-            child_dates = {d for d, _, _ in child_set}
-
-            total_people = sum(r["총인원"] for r in rows)
-            active_days = sum(1 for r in rows if r["총인원"] > 0)
-
-            st.markdown(
-                f"<div class='k-summary'>"
-                f"<span class='k-chip'>예약일 {active_days}일</span>"
-                f"<span class='k-chip'>총인원 {total_people}명</span>"
-                f"<span class='k-chip'>친구감지 {len(hit_set)}건</span>"
-                f"<span class='k-chip'>하연감지 {len(child_set)}건</span>"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
-
-            filtered = []
-            for r in rows:
-                if only_with_reservation and r["총인원"] == 0:
-                    continue
-                if only_friend_days and r["날짜"] not in hit_dates:
-                    continue
-                if only_child_days and r["날짜"] not in child_dates:
-                    continue
-                filtered.append(r)
-
-            if not filtered:
-                st.info("조건에 맞는 데이터가 없어.")
-            else:
-                watch_lower = {w.lower() for w in watch_names}
-                child_lower = CHILD_NAME.lower()
-
-                for r in filtered:
-                    date_label = f"{r['날짜']} ({r['요일']})"
-                    lead_flags = []
-                    if r["날짜"] in child_dates:
-                        lead_flags.append("👧 하연")
-                    if r["날짜"] in hit_dates:
-                        lead_flags.append("👥 친구")
-                    flag_text = f" | {' · '.join(lead_flags)}" if lead_flags else ""
-
-                    with st.expander(f"{date_label} · 총 {r['총인원']}명{flag_text}", expanded=False):
-                        if r["is_closed"]:
-                            st.caption("휴무")
-                            continue
-
-                        for slot in TIME_COLUMNS:
-                            if slot not in r["slots"]:
-                                continue
-                            names = r["slots"].get(slot, [])
-                            if not names:
-                                continue
-
-                            rendered = []
-                            for nm in names:
-                                esc = html.escape(nm)
-                                low = nm.lower()
-                                if low == child_lower:
-                                    rendered.append(f"<span class='child-name'>{esc}</span>")
-                                elif low in watch_lower:
-                                    rendered.append(f"<span class='friend-name'>{esc}</span>")
-                                else:
-                                    rendered.append(esc)
-
-                            st.markdown(
-                                f"<div class='k-slot'><div class='k-slot-title'>{slot}</div><div>{', '.join(rendered)}</div></div>",
-                                unsafe_allow_html=True,
-                            )
-
-            if errors:
-                with st.expander(f"⚠️ 조회 오류 {len(errors)}건"):
-                    for e in errors[:80]:
-                        st.write("-", e)
+            render_result(rows, hits, child_hits, errors, watch_names)
