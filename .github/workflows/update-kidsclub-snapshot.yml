@@ -5,6 +5,10 @@ on:
     - cron: "*/30 * * * *"
   workflow_dispatch:
 
+concurrency:
+  group: kidsclub-snapshot-main
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -41,4 +45,5 @@ jobs:
           git add active/kidsclub/data/kidsclub_latest_snapshot.json
           git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "chore: update kidsclub snapshot"
-          git push
+          git pull --rebase origin main
+          git push origin HEAD:main
