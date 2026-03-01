@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 from bs4 import BeautifulSoup
@@ -102,8 +103,13 @@ def main():
     login(session)
     rows, friend_hits, child_hits = collect_rows(session)
 
+    now_utc = datetime.now(timezone.utc)
+    now_kst = now_utc.astimezone(ZoneInfo("Asia/Seoul"))
+
     payload = {
-        "updatedAt": datetime.now().isoformat(),
+        "updatedAt": now_kst.isoformat(),
+        "updatedAtUtc": now_utc.isoformat().replace("+00:00", "Z"),
+        "updatedAtKst": now_kst.isoformat(),
         "rows": rows,
         "friend_hits": sorted(list(set(friend_hits))),
         "child_hits": sorted(list(set(child_hits))),

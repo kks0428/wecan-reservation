@@ -348,8 +348,12 @@ if use_server_snapshot:
     if not snap:
         st.warning("서버 스냅샷이 아직 없어. 모니터 프로세스 실행 후 새로고침해줘.")
     else:
-        updated_at = snap.get("updatedAt", "unknown")
-        st.caption(f"🕒 서버 갱신 시각: {updated_at}")
+        updated_at = snap.get("updatedAtKst") or snap.get("updatedAt") or "unknown"
+        updated_at_utc = snap.get("updatedAtUtc", "")
+        if updated_at_utc:
+            st.caption(f"🕒 서버 갱신 시각(KST): {updated_at} | UTC: {updated_at_utc}")
+        else:
+            st.caption(f"🕒 서버 갱신 시각: {updated_at}")
         rows = snap.get("rows", [])
         hits = snap.get("friend_hits", [])
         child_hits = snap.get("child_hits", [])
