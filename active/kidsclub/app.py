@@ -313,11 +313,14 @@ def render_result(rows, hits, child_hits, errors, watch_names):
                 st.write("-", e)
 
 
+BUILD_MARKER = "BUILD clean/kidsclub-fix · 2026-04-05-kst-fix"
+
 st.markdown(
-    """
+    f"""
 <div class='hero'>
   <div class='hero-title'>키즈클럽 스마트 조회</div>
   <div class='hero-sub'>오늘부터 28일 범위(월요일 제외) · 친구/하연 자동 하이라이트 · 모바일 최적화</div>
+  <div class='hero-sub' style='margin-top:6px;font-weight:700;'>{BUILD_MARKER}</div>
 </div>
 """,
     unsafe_allow_html=True,
