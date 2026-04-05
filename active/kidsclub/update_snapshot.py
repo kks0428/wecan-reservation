@@ -52,7 +52,8 @@ def login(session: requests.Session):
 
 
 def collect_rows(session: requests.Session):
-    start_date = datetime.now().date()
+    now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
+    start_date = now_kst.date()
     end_date = start_date + timedelta(days=28)
 
     rows, friend_hits, child_hits = [], [], []

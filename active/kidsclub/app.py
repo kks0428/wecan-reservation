@@ -3,6 +3,7 @@ import json
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 import streamlit as st
@@ -360,9 +361,33 @@ if use_server_snapshot:
             st.caption(f"🕒 서버 갱신 시각(KST): {updated_at} | UTC: {updated_at_utc}")
         else:
             st.caption(f"🕒 서버 갱신 시각: {updated_at}")
+
         rows = snap.get("rows", [])
         hits = snap.get("friend_hits", [])
         child_hits = snap.get("child_hits", [])
+
+        # 스냅샷 신선도 체크: 오래됐거나 시작일이 오늘보다 과거면 경고
+        stale = False
+        try:
+            now_local = datetime.now(ZoneInfo("Asia/Seoul"))
+            snap_dt = datetime.fromisoformat((snap.get("updatedAtKst") or snap.get("updatedAt") or "").replace("Z", "+00:00"))
+            age_hours = (now_local.replace(tzinfo=None) - snap_dt.replace(tzinfo=None)).total_seconds() / 3600.0
+            if age_hours > 2.0:
+                stale = True
+        except Exception:
+            pass
+
+        try:
+            if rows:
+                first_date = datetime.strptime(rows[0].get("날짜", ""), "%Y-%m-%d").date()
+                if first_date < datetime.now(ZoneInfo("Asia/Seoul")).date():
+                    stale = True
+        except Exception:
+            pass
+
+        if stale:
+            st.warning("⚠️ 서버 스냅샷이 오래되었거나 날짜 롤링이 멈췄어. 아래 '오늘+28일 즉시 조회'로 최신값 확인해줘.")
+
         render_result(rows, hits, child_hits, [], watch_names if use_friend_alert else [])
 
 if st.button("🚀 오늘+28일 즉시 조회", type="primary", use_container_width=True):
